@@ -1,0 +1,146 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+COLUMN_LEN=4
+
+def plot(a,b,x,dx,y,dy,axes):
+    z = np.arange(np.min(x), np.max(x) + 1) #range for running line
+    plt.figure()
+    plt.plot(z, a*z+b, color='red') #linear fit colored red
+    plt.errorbar(x, y, xerr=dx, yerr=dy, ecolor='blue', fmt='none')
+    plt.xlabel(axes['x'])#taking axis name from axes dictionary
+    plt.ylabel(axes['y'])
+    plt.savefig("linear_fit.svg")
+    #plt.show()
+
+def parserows(inputtxt):
+    table={} #table will be dictionary containing the data points
+    axes={}
+    endoftable=False
+    for line in inputtxt.splitlines(): #splitting the text to lines
+        if line=='': ##breaking for empty line
+            endoftable=True
+            continue
+        if not endoftable:
+            entry=line.split()  # splitting the row by spaces to list of strings
+            key=entry[0].lower() #this will be the key, x dx y dy, all in lowercase
+            somelist=[] #will contain the data points, and will enter the dictionary
+            for i in range(1,len(entry)): #appending the data points to somelist
+                somelist.append(float(entry[i]))
+            table[key]=somelist #filling the dictionary
+        else:
+            entry = line.split()
+            axes[entry[0]] = entry[2] + " " + entry[3] ##taking last lines and turning them into dictionary for axis naming
+
+    length=None
+    for v in table.values(): # checking lists for lengths
+        if length!=None and len(v)!=length: ##
+            raise ValueError("Input file error: Data lists are not the same length.")
+        length=len(v)
+    for t in table['dx']: ##checking uncertainties for non positive values
+        if t<=0:
+            raise ValueError("input file error: Not all uncertainties are positive.")
+    return table, axes
+
+def parsecolumns(inputtxt):
+    axes = {}
+    endoftable = False
+    table={} #table will be dictionary containing data points
+    isfirst=True #to handle headers/first row
+    indexes=[]##to map index to key
+    for line in inputtxt.splitlines(): ##mapping the values (entry ) by indexes to the keys in table
+        if line=='': ##breaking for empty line
+            endoftable=True
+            continue
+        if not endoftable:
+
+            entry=line.split()
+            if len(entry) != COLUMN_LEN:
+                raise ValueError("Input file error: Data lists are not the same length.")
+            if isfirst:
+                for k in range(len(entry)): # k going by each column
+                    indexes.append(entry[k].lower())
+                    table[entry[k].lower()] = []
+                isfirst=False # line is no longer headers
+            else:
+                for k in range(len(entry)):
+                    table[indexes[k]].append(float(entry[k]))
+        else:
+            entry = line.split()
+            axes[entry[0]] = entry[2] + " " + entry[3]
+    return table, axes
+
+def readinputfile(inputfilename):  ##reading the file to check which parse function to use
+    f=open(inputfilename,'r')
+    inputtxt=f.read()
+    f.close()
+    rows=False
+    for i in inputtxt.splitlines()[0]:
+        if i.isdigit():
+            rows=True
+
+    if rows:
+        return parserows(inputtxt)
+    else:
+        return parsecolumns(inputtxt)
+
+def write_results_to_file(filename, a, da, b, db, chi2, chi2red): #output file
+    f = open(filename, 'w')
+    f.write("a={} +- {}\n".format(a, da))
+    f.write("b={} +- {}\n".format(b, db))
+    f.write("chi2={}\n".format(chi2))
+    f.write("chi2_reduced={}".format(chi2red))
+    f.close()
+
+def harmonic_sum(mlist):
+    summ=0
+    for i in range(len(mlist)):
+        summ+=mlist[i]/((table['dy'][i])**2)
+    return summ
+def harmonic_sum2():
+    summ=0
+    for i in range(len(table['dy'])):
+        summ+=1/((table['dy'][i])**2)
+    return summ
+def z_roof(mlist):
+    return harmonic_sum(mlist)/harmonic_sum2()
+
+def slope_a():
+    a=(z_roof([a*b for a,b in zip(table['x'],table['y'])]) -(z_roof(table['x'])*z_roof(table['y'])))/(z_roof([a*b for a,b in zip(table['x'],table['x'])])-z_roof(table['x'])**2)
+    return a
+
+def intercept_b():
+    b=z_roof(table['y']) - slope_a()*z_roof(table['x'])
+    return b
+
+def errb():
+    s=(z_roof([a*b for a,b in zip(table['dy'],table['dy'])])*z_roof([a*b for a,b in zip(table['x'],table['x'])]))/((len(table['dx']))*((z_roof([a*b for a,b in zip(table['x'],table['x'])])-z_roof(table['x'])**2)))
+    return s**0.5
+
+def erra():
+    s=(z_roof([a*b for a,b in zip(table['dy'],table['dy'])]))/((len(table['dx']))*((z_roof([a*b for a,b in zip(table['x'],table['x'])])-z_roof(table['x'])**2)))
+    return s**0.5
+
+def chi2():
+    summ=0
+    for i in range(len(table['dx'])):
+        summ+=((table['y'][i] - (slope_a()*table['x'][i] + intercept_b() ))/table['dy'][i])**2
+    return summ
+
+def chi2red(chi2):
+    reduced=chi2/(len(table['x']) - 2)
+    return reduced
+
+if __name__ == '__main__': #start of main program
+    text_file_name = "input.txt" #reading actual filename
+    table, axes = readinputfile(text_file_name)
+    write_results_to_file('output_txt',slope_a(),erra(),intercept_b(),errb(),chi2(),chi2red(chi2()))
+    print("a={} +- {}\n".format(slope_a(), erra()))
+    print("b={} +- {}\n".format(intercept_b(), errb()))
+    print("chi2={}\n".format(chi2()))
+    print("chi2_reduced={}".format(chi2red(chi2())))
+
+    plot(slope_a(), intercept_b(), table['x'],table['dx'], table['y'], table['dy'],axes)
+
+
